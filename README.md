@@ -1,9 +1,15 @@
 # charting
 
+[![crates.io](https://img.shields.io/crates/v/charting.svg)](https://crates.io/crates/charting) [![docs.rs](https://docs.rs/charting/badge.svg)](https://docs.rs/charting)
+
 Financial charts for [egui](https://github.com/emilk/egui): candles drawn the way TradingView draws them, an
 overlay API that leaves the drawing to you, drawing tools, sub-panes, and order-flow layers (book heatmap,
 liquidation-style time × price maps). Extracted from [Depth](https://github.com/ChloePike/depth), a multi-exchange
 crypto trading terminal.
+
+```sh
+cargo add charting
+```
 
 ```rust
 use charting::{Chart, ChartData, Frame, Z};
