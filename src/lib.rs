@@ -1,8 +1,9 @@
 //! Financial charts for egui.
 //!
 //! - [`Chart`]: a ready widget (candles drawn the TradingView way, grid, axes, last-price tag, crosshair, pan / glide /
-//!   zoom, eased auto-fit) and the [`Overlay`] trait, which paints at each depth ([`Z`]) with the coordinate
-//!   transforms, the visible bars and the price-axis tag layout in a [`Frame`].
+//!   zoom, eased auto-fit, linear / log / percent [`Scale`], a legend inset, sub-panes) and the [`Overlay`] trait, which
+//!   paints at each depth ([`Z`]) with the coordinate transforms, the visible bars and the price-axis tag layout in a
+//!   [`Frame`], paints each pane in a [`PaneFrame`] and may claim drags; `show` returns a [`ChartResponse`].
 //! - The parts it is built from, for apps that assemble their own: `coords` (price scale, bar axis, grid), `candle`,
 //!   `interact` (pan, zoom, price range), `layout` (axis tags that never overlap), `pane` (sub-panes), `ta`
 //!   (EMA, RSI, MACD, Bollinger, SMA), `draw` (drawing tools: model, geometry, hit-testing, painting), `orderflow`
