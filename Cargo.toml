@@ -1,0 +1,23 @@
+[package]
+name = "charting"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Financial charts for egui: candles drawn the TradingView way, indicators, drawing tools and order-flow layers (book heatmap, liquidation-style time x price maps)"
+keywords = ["egui", "chart", "candlestick", "trading", "orderflow"]
+categories = ["gui", "visualization"]
+repository = "https://github.com/ChloePike/charting"
+readme = "README.md"
+
+[features]
+default = ["serde"]
+# Serialize / Deserialize on the persisted types (drawings, tools)
+serde = ["dep:serde"]
+
+[dependencies]
+egui = { version = "0.36", default-features = false }
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+eframe = "0.36"

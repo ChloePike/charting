@@ -1,0 +1,6 @@
+charting
+Copyright 2026 Chloe Pike. Licensed under the GNU General Public License, version 3 only (GPL-3.0-only).
+
+The candle body width (`candle::tv_body_px`) follows `optimalCandlestickWidth` from TradingView's
+lightweight-charts (https://github.com/tradingview/lightweight-charts), Copyright TradingView, Inc.,
+licensed under the Apache License, Version 2.0.
