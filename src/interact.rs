@@ -46,7 +46,8 @@ pub fn pan_zoom(ui: &Ui, resp: &Response, main: Rect, n_bars: usize, v: &mut Tim
         }
     }
     let reset = resp.double_clicked() && reset_ok;
-    if reset { v.right = 0.0; v.bar_w = BAR_W; }
+    // a reset also stops a glide (it would carry the view away from the live edge again)
+    if reset { v.right = 0.0; v.bar_w = BAR_W; v.fling = 0.0; }
     (dt, y_wheel, reset)
 }
 
@@ -143,5 +144,11 @@ mod tests {
         let click = |down| vec![press(100.0, 100.0, down)];
         let (v, reset) = run(vec![vec![Event::PointerMoved(pos2(100.0, 100.0))], click(true), click(false), click(true), click(false), vec![]], false);
         assert!(reset && v.right == 0.0 && v.bar_w == BAR_W, "{v:?} {reset}");
+        // a reset right after a flung drag stays at the live edge (the glide stops)
+        let mut f = drag_frames(100.0, 300.0);
+        f.pop();
+        f.extend([click(true), click(false), click(true), click(false), vec![], vec![]]);
+        let (v, reset) = run(f, false);
+        assert!(reset && v.right == 0.0 && v.fling == 0.0, "{v:?}");
     }
 }
