@@ -27,7 +27,9 @@ through the overlay, on a percent scale (S switches linear / log / percent).
 - **`Chart`**: candles on device pixels with TradingView's body width, grid, price and time axes, last-price tag,
   crosshair, pan / glide / zoom around the pointer, eased auto-fit, wheel and axis-drag price scaling.
 - **`Chart` options**: linear / log / percent scale, the app's price and time formats, a legend inset above the plot,
-  sub-panes under it (id, height), axis sizes, the widest zoom, the built-in last-price tag on or off. `show` returns a
+  sub-panes under it (id, height), axis sizes, the widest zoom, the built-in last-price tag, crosshair, candles and
+  grid on or off (an app painting its own footprint or dotted grid; `Frame` carries the grid values and the time
+  labels' bars, which sit on round multiples of the bar). `show` returns a
   `ChartResponse`: the view reached the oldest bar (once per bar: load an older page), the hovered bar, whether the
   view moved (`Chart::reset`).
 - **`Overlay`**: paint under the grid, under the candles, over them, and over everything (`Z::Top`), each sub-pane

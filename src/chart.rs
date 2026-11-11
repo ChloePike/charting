@@ -8,6 +8,7 @@ use crate::fmt::{fmt_big, step_dp};
 use crate::interact::{pan_zoom, price_range, TimeView, BAR_W};
 use crate::layout::{place, try_place};
 use crate::pane::inner;
+use crate::pane::axis_color;
 use crate::style::{cross_bg, dim, dn, label_bg, line, mono, mono_m, mu, up};
 use egui::{pos2, vec2, Align2, Color32, Painter, Pos2, Rect, Response, Sense, Stroke, Ui};
 
@@ -25,6 +26,11 @@ pub struct ChartData<'a> { pub candles: &'a [Candle], pub bar_ms: i64, pub key: 
 /// `AboveCandles` and `Top`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Z { Back, BelowCandles, AboveCandles, Top }
+
+/// Which time label `Chart::fmt_time` is asked for: an axis label on an intraday grid (a time, the date at midnight),
+/// an axis label on a grid of a day or more (the date), or the crosshair's label (date and time).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeLabel { Time, Day, Full }
 
 /// The price scale: linear, log, or percent (linear, labelled relative to the first visible close).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -60,6 +66,10 @@ pub struct Frame<'a> {
     pub dp: usize,
     /// percent scale: the price at 0% (the first visible close)
     pub base: Option<f64>,
+    /// the price grid's values (for an app drawing its own grid, `Chart::grid` off)
+    pub grid: Vec<f64>,
+    /// bar indices of the time axis labels (the vertical grid)
+    pub times: Vec<usize>,
     fmt_price: Option<fn(f64, usize) -> String>,
     tags: Vec<Rect>,
     axis_w: f32,
@@ -170,8 +180,8 @@ pub struct Chart {
     eased: Option<(String, f64, f64)>,
     /// price format (value, the grid step's decimals); None = those decimals
     pub fmt_price: Option<fn(f64, usize) -> String>,
-    /// time format (ms, full: the crosshair's label, else an axis label); None = `fmt::time` (UTC)
-    pub fmt_time: Option<fn(i64, bool) -> String>,
+    /// time format (ms, which label); None = `fmt::time` (UTC)
+    pub fmt_time: Option<fn(i64, TimeLabel) -> String>,
     /// height of the legend inset above the plot (points)
     pub inset_top: f32,
     /// sub-panes under the plot, top first: (id, height); `Overlay::pane` paints each
@@ -185,6 +195,10 @@ pub struct Chart {
     pub last_price: bool,
     /// the built-in crosshair (off when the app draws its own, e.g. snapping to OHLC, in `Z::Top`)
     pub crosshair: bool,
+    /// the built-in candles (off when the app paints its own bars, e.g. a footprint, in `Z::BelowCandles`)
+    pub candles: bool,
+    /// the built-in grid lines (off when the app paints its own from `Frame::grid` / `Frame::times`)
+    pub grid: bool,
     claimed: bool,
     oldest: Option<(String, i64)>,
 }
@@ -192,7 +206,7 @@ pub struct Chart {
 impl Default for Chart {
     fn default() -> Self {
         Chart { view: TimeView { right: 0.0, bar_w: BAR_W, fling: 0.0 }, scale: Scale::Linear, y_range: None, eased: None, fmt_price: None, fmt_time: None,
-            inset_top: 0.0, panes: vec![], axis_w: AXIS_W, time_h: TIME_H, max_bar_w: 60.0, last_price: true, crosshair: true, claimed: false, oldest: None }
+            inset_top: 0.0, panes: vec![], axis_w: AXIS_W, time_h: TIME_H, max_bar_w: 60.0, last_price: true, crosshair: true, candles: true, grid: true, claimed: false, oldest: None }
     }
 }
 
@@ -225,9 +239,9 @@ impl Chart {
         let reset_ok = !resp.double_clicked() || ui.input(|i| i.pointer.interact_pos()).is_none_or(|p| overlay.allows_reset(p));
         let (dt, y_wheel, reset) = pan_zoom(ui, &resp, area, n, &mut self.view, self.max_bar_w, self.claimed, on_axis, reset_ok);
         if reset { self.y_range = None; }
-        // the live edge sits 3 bars in from the right; never panned past either end
+        // the newest bar sits 3 bars in from the right (the edge `pan_zoom` zooms around); never panned past either end
         self.view.right = self.view.right.clamp(-(main.width() / self.view.bar_w) * 0.8, n as f32);
-        let right_edge = n as f32 + 2.0 - self.view.right;
+        let right_edge = n as f32 + 3.0 - self.view.right;
         let axis = BarAxis { first: right_edge - main.width() / self.view.bar_w, right_edge, bar_w: self.view.bar_w, plot: main };
         // the oldest bar in view: once per (series, oldest bar) until the view leaves it
         if axis.first >= 1.0 { self.oldest = None; } else {
@@ -258,22 +272,35 @@ impl Chart {
         let step = |g: &[f64]| { let s = g.windows(2).map(|w| w[1] - w[0]).fold(f64::MAX, f64::min); if s.is_finite() && s > 0.0 { step_dp(s) } else { 2 } };
         let gv = grid(lo, hi, n_lines);
         let dp = step(&gv);
+        // time labels on round multiples of the bar (every 1, 2, 3, 5, 10, 15, 30 ... bars, ~90 points apart), so
+        // they stay on the same bars while panning
+        let bar_ms = data.bar_ms.max(1);
+        let every = [1i64, 2, 3, 5, 10, 15, 30, 60, 120, 240, 480].into_iter().find(|k| *k as f32 * self.view.bar_w >= 90.0).unwrap_or(960);
+        let times: Vec<usize> = (i0..=i1).filter(|i| (data.candles[*i].t / bar_ms).rem_euclid(every) == 0).collect();
         let mut f = Frame { painter: ui.painter_at(area), full: full.clone(), ui, response: &resp, rect, plot: main, legend: Rect::from_min_max(area.min, pos2(area.right(), main.top())),
-            panes: panes.clone(), axis, scale, candles: data.candles, i0, i1, hover, hover_i, dp, base, fmt_price: self.fmt_price, tags: vec![], axis_w: self.axis_w };
+            panes: panes.clone(), axis, scale, candles: data.candles, i0, i1, hover, hover_i, dp, base, grid: vec![], times, fmt_price: self.fmt_price, tags: vec![], axis_w: self.axis_w };
         let grid_lines: Vec<(f64, String)> = match base {
             Some(b) => { let pg = grid((lo / b - 1.0) * 100.0, (hi / b - 1.0) * 100.0, n_lines); let pdp = step(&pg); pg.iter().map(|p| (b * (1.0 + p / 100.0), format!("{p:+.pdp$}%"))).collect() }
             None => gv.iter().map(|v| (*v, f.price(*v))).collect(),
         };
+        f.grid = grid_lines.iter().map(|g| g.0).collect();
+        // every fifth grid step is a round level: its label a shade brighter
+        let gstep = gv.windows(2).map(|w| w[1] - w[0]).fold(f64::MAX, f64::min);
+        let round = |v: f64| base.is_none() && gstep.is_finite() && { let k = v / (gstep * 5.0); (k - k.round()).abs() < 1e-6 };
         // the last price's tag is reserved before any overlay places one
         let last = data.candles[n - 1];
         let last_tag = (self.last_price && scale.y(last.c) >= main.top() && scale.y(last.c) <= main.bottom()).then(|| { let r = f.axis_slot(scale.y(last.c), 18.0); f.reserve(r); r });
 
         overlay.paint(Z::Back, &mut f);
-        for (v, _) in &grid_lines { f.painter.hline(main.x_range(), scale.y(*v), Stroke::new(1.0, line())); }
+        if self.grid {
+            for (v, _) in &grid_lines { f.painter.hline(main.x_range(), scale.y(*v), Stroke::new(1.0, line())); }
+            let bottom = main.bottom() + panes_h;
+            for &i in &f.times { full.vline(axis.x(i as f32), area.top()..=bottom, Stroke::new(1.0, line())); }
+        }
         overlay.paint(Z::BelowCandles, &mut f);
         let ppp = ui.ctx().pixels_per_point();
         let bw = tv_body_px(self.view.bar_w, ppp);
-        for (k, b) in vis.iter().enumerate() {
+        for (k, b) in vis.iter().enumerate().filter(|_| self.candles) {
             let col = if b.c >= b.o { up() } else { dn() };
             paint_candle(&f.painter, axis.x((i0 + k) as f32), bw, self.view.bar_w, ppp, [scale.y(b.o), scale.y(b.h), scale.y(b.l), scale.y(b.c)], col);
         }
@@ -292,18 +319,18 @@ impl Chart {
             overlay.pane(id, &mut pf);
             ranges.push((r, pf.range));
         }
-        // time axis: a label every ~100 points
+        // time axis: dates once the labels are a day or more apart
         let ty = top + self.time_h / 2.0;
-        let fmt_time = self.fmt_time.unwrap_or(crate::fmt::time);
-        let every = ((100.0 / self.view.bar_w).ceil() as usize).max(1);
-        for i in (i0..=i1).filter(|i| i % every == 0) {
-            full.text(pos2(axis.x(i as f32), ty), Align2::CENTER_CENTER, fmt_time(data.candles[i].t, false), mono(11.0), mu());
+        let fmt_time = self.fmt_time.unwrap_or(|ms, l| crate::fmt::time(ms, l == TimeLabel::Full));
+        let kind = if every * bar_ms >= 86_400_000 { TimeLabel::Day } else { TimeLabel::Time };
+        for &i in &f.times {
+            full.text(pos2(axis.x(i as f32), ty), Align2::CENTER_CENTER, fmt_time(data.candles[i].t, kind), mono(11.5), axis_color());
         }
         // price labels last: one an axis tag covers is skipped, not half hidden
         for (v, s) in &grid_lines {
             let y = scale.y(*v);
             if f.tags.iter().any(|t| t.left() > main.right() && t.y_range().intersects(egui::Rangef::new(y - 6.0, y + 6.0))) { continue; }
-            full.text(pos2(main.right() + 6.0, y), Align2::LEFT_CENTER, s, mono(11.0), mu());
+            full.text(pos2(main.right() + 8.0, y), Align2::LEFT_CENTER, s, mono(11.5), if round(*v) { mu() } else { axis_color() });
         }
         // crosshair through the plot and the panes, its price / value tag and the time label
         if let (Some(i), Some(p), true) = (hover_i, hp, self.crosshair) {
@@ -316,7 +343,7 @@ impl Chart {
                 full.extend(egui::Shape::dashed_line(&[pos2(r.left(), p.y), pos2(r.right(), p.y)], s, 3.0, 3.0));
                 f.paint_tag(f.axis_slot(p.y, 18.0), &text, cross_bg());
             }
-            let g = full.layout_no_wrap(fmt_time(data.candles[i].t, true), mono_m(11.0), Color32::WHITE);
+            let g = full.layout_no_wrap(fmt_time(data.candles[i].t, TimeLabel::Full), mono_m(11.0), Color32::WHITE);
             let tl = Rect::from_center_size(pos2(x, ty), vec2(g.size().x + 12.0, self.time_h - 2.0));
             full.rect_filled(tl, 2, cross_bg());
             full.galley(tl.center() - g.size() / 2.0, g, Color32::WHITE);
@@ -400,6 +427,14 @@ mod tests {
         assert_eq!(rec.plot.unwrap(), Rect::from_min_max(pos2(0.0, 40.0), pos2(720.0, 330.0)));
         assert_eq!(rec.panes, vec![(1, Rect::from_min_max(pos2(0.0, 330.0), pos2(720.0, 410.0))), (2, Rect::from_min_max(pos2(0.0, 410.0), pos2(720.0, 470.0)))]);
         assert_eq!(rec.seen, ["Back", "BelowCandles", "AboveCandles", "pane1", "pane2", "Top"]);
+    }
+
+    #[test]
+    fn time_labels_sit_on_round_bars() {
+        let mut times = vec![];
+        run(&mut Chart::default(), &walk(300), vec![vec![]], &mut |z: Z, f: &mut Frame| if z == Z::Back { times = f.times.clone(); });
+        // 7 points per bar: every 15th bar (15 x 7 >= 90 points), by its open time, not its index
+        assert!(!times.is_empty() && times.iter().all(|i| i % 15 == 0), "{times:?}");
     }
 
     #[test]

@@ -24,5 +24,5 @@ pub mod orderflow;
 pub mod style;
 pub mod ta;
 
-pub use chart::{Candle, Chart, ChartData, ChartResponse, Frame, Nothing, Overlay, PaneFrame, Scale, Z};
+pub use chart::{Candle, Chart, ChartData, ChartResponse, Frame, Nothing, Overlay, PaneFrame, Scale, TimeLabel, Z};
 pub use egui;
