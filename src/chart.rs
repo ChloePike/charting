@@ -183,6 +183,8 @@ pub struct Chart {
     pub max_bar_w: f32,
     /// the built-in last-price line and tag (off when the app draws its own)
     pub last_price: bool,
+    /// the built-in crosshair (off when the app draws its own, e.g. snapping to OHLC, in `Z::Top`)
+    pub crosshair: bool,
     claimed: bool,
     oldest: Option<(String, i64)>,
 }
@@ -190,7 +192,7 @@ pub struct Chart {
 impl Default for Chart {
     fn default() -> Self {
         Chart { view: TimeView { right: 0.0, bar_w: BAR_W, fling: 0.0 }, scale: Scale::Linear, y_range: None, eased: None, fmt_price: None, fmt_time: None,
-            inset_top: 0.0, panes: vec![], axis_w: AXIS_W, time_h: TIME_H, max_bar_w: 60.0, last_price: true, claimed: false, oldest: None }
+            inset_top: 0.0, panes: vec![], axis_w: AXIS_W, time_h: TIME_H, max_bar_w: 60.0, last_price: true, crosshair: true, claimed: false, oldest: None }
     }
 }
 
@@ -304,7 +306,7 @@ impl Chart {
             full.text(pos2(main.right() + 6.0, y), Align2::LEFT_CENTER, s, mono(11.0), mu());
         }
         // crosshair through the plot and the panes, its price / value tag and the time label
-        if let (Some(i), Some(p)) = (hover_i, hp) {
+        if let (Some(i), Some(p), true) = (hover_i, hp, self.crosshair) {
             let (s, x) = (Stroke::new(1.0, dim()), axis.x(i as f32));
             full.extend(egui::Shape::dashed_line(&[pos2(x, area.top()), pos2(x, top)], s, 3.0, 3.0));
             let value = if main.contains(p) { Some((main, f.label(scale.v(p.y)))) } else {
